@@ -1,0 +1,68 @@
+# repviz 🔬
+
+**Foundation model representation analyzer & visualizer.**
+
+A comprehensive toolkit for analyzing learned representations in pretrained vision foundation models. Designed for research-grade analysis with publication-quality visualizations.
+
+## Quick Start
+
+```bash
+pip install -e .
+
+# Or with interactive dashboard
+pip install -e ".[all]"
+```
+
+```python
+import torch
+from repviz.models import load_dinov2
+from repviz.utils import make_dinov2_transform, URLImageDataset
+from repviz.analyses.geometry import pca_feature_map, effective_rank
+from repviz.visualization import plot_pca_rgb
+
+# Load model
+model = load_dinov2("dinov2_vitb14", device="cuda")
+
+# Load demo images
+transform = make_dinov2_transform(518)
+dataset = URLImageDataset(transform=transform)
+img_tensor, _ = dataset[0]
+
+# Extract features
+model.register_hooks()
+output = model.extract(img_tensor.unsqueeze(0))
+
+# PCA visualization
+h = w = int(output.patch_tokens.shape[1] ** 0.5)
+pca_map, pca = pca_feature_map(output.patch_tokens[0], h, w)
+plot_pca_rgb(original_image, pca_map, title="DINOv2 PCA Features")
+```
+
+## Analysis Categories
+
+| # | Category | Key Analyses |
+|---|----------|-------------|
+| 1 | Feature Geometry | PCA, SVD spectrum, effective rank, isotropy |
+| 2 | Layer-wise | CKA matrix, linear probing, rank evolution |
+| 3 | Attention | Maps, rollout, head distance, entropy |
+| 4 | Semantic Probing | Classification, segmentation, depth probes |
+| 5 | Dense Features | Cosine sim maps, correspondence, clustering |
+| 6 | Robustness | Augmentation invariance, domain shift |
+| 7 | Cross-Model | CKA, platonic representation, transfer gap |
+| 8 | Neurons | Feature viz, selectivity, dead neurons |
+| 9 | Weights | Spectral analysis, rank, distributions |
+| 10 | Benchmarks | Full downstream task suite |
+
+See [PLAN.md](PLAN.md) for detailed analysis descriptions and implementation roadmap.
+
+## Supported Models
+
+- **DINOv2** (ViT-S/B/L/g, with/without registers)
+- **DINOv3** (ViT-S→7B, ConvNeXt) — via torch.hub or HuggingFace
+- **CLIP** / **SigLIP** (coming soon)
+- **MAE** (coming soon)
+- Any model that follows the `BackboneWrapper` interface
+
+## License
+
+MIT

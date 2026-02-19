@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repviz"
+version = "0.1.0"
+description = "Foundation model representation analyzer & visualizer"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "Pillow",
+    "tqdm",
+    "einops",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+interactive = ["gradio>=4.0"]
+notebooks = ["jupyter", "ipywidgets"]
+all = ["repviz[interactive,notebooks]"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
