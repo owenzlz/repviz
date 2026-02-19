@@ -11,6 +11,11 @@ from .isotropy import (
     feature_norms,
     cosine_similarity_distribution,
 )
+from .intrinsic_dim import (
+    two_nn_id,
+    mle_id,
+    id_per_layer,
+)
 
 __all__ = [
     "compute_pca",
@@ -22,4 +27,7 @@ __all__ = [
     "isotropy_score",
     "feature_norms",
     "cosine_similarity_distribution",
+    "two_nn_id",
+    "mle_id",
+    "id_per_layer",
 ]

@@ -10,15 +10,27 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-def make_dinov2_transform(resize: int = 518):
-    """Standard DINOv2/v3 evaluation transform (ImageNet normalization)."""
-    import torchvision.transforms as T
+def make_dinov2_transform(resize: int = 518, model_name: str = "facebook/dinov2-small"):
+    """Standard DINOv2/v3 evaluation transform.
 
-    return T.Compose([
-        T.Resize((resize, resize), interpolation=T.InterpolationMode.BICUBIC),
-        T.ToTensor(),
-        T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-    ])
+    Uses HF AutoImageProcessor if available, falls back to torchvision.
+    """
+    try:
+        from transformers import AutoImageProcessor
+        processor = AutoImageProcessor.from_pretrained(model_name)
+
+        def transform(img):
+            inputs = processor(images=img, return_tensors="pt")
+            return inputs["pixel_values"].squeeze(0)
+
+        return transform
+    except Exception:
+        import torchvision.transforms as T
+        return T.Compose([
+            T.Resize((resize, resize), interpolation=T.InterpolationMode.BICUBIC),
+            T.ToTensor(),
+            T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ])
 
 
 def inverse_normalize(tensor: torch.Tensor) -> np.ndarray:

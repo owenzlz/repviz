@@ -87,14 +87,21 @@ def layerwise_cka_matrix(
     Returns:
         (L, L) CKA matrix and list of layer names.
     """
-    layer_names = sorted(features.keys())
+    import re
+    def _sort_key(name):
+        nums = re.findall(r'\d+', name)
+        return int(nums[-1]) if nums else name
+    layer_names = sorted(features.keys(), key=_sort_key)
     L = len(layer_names)
 
-    # Flatten spatial dims and subsample
+    # Flatten to (N_total, D) and subsample
     flat_feats = {}
     for name in layer_names:
         f = features[name]
-        if f.ndim > 2:
+        if f.ndim == 3:
+            # (B, tokens, D) -> (B*tokens, D)
+            f = f.reshape(-1, f.shape[-1])
+        elif f.ndim > 2:
             f = f.reshape(f.shape[0], -1)
         if f.shape[0] > max_samples:
             idx = torch.randperm(f.shape[0])[:max_samples]

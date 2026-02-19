@@ -114,4 +114,5 @@ class BackboneWrapper(ABC):
         ...
 
     def __del__(self):
-        self.remove_hooks()
+        if hasattr(self, "_hooks"):
+            self.remove_hooks()

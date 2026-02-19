@@ -1,12 +1,11 @@
-"""DINOv2 backbone wrapper.
+"""DINOv2 backbone wrapper using HuggingFace Transformers.
 
-Works for both DINOv2 and DINOv3 models loaded via torch.hub,
-since DINOv3 shares the same ViT architecture interface.
+Works for DINOv2 models. Compatible with Python 3.9+.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -14,178 +13,141 @@ import torch.nn as nn
 from .base import BackboneWrapper, ModelOutput
 
 
-# Available DINOv2 models via torch.hub
-DINOV2_MODELS = {
-    "dinov2_vits14": ("facebookresearch/dinov2", "dinov2_vits14"),
-    "dinov2_vitb14": ("facebookresearch/dinov2", "dinov2_vitb14"),
-    "dinov2_vitl14": ("facebookresearch/dinov2", "dinov2_vitl14"),
-    "dinov2_vitg14": ("facebookresearch/dinov2", "dinov2_vitg14"),
-    "dinov2_vits14_reg": ("facebookresearch/dinov2", "dinov2_vits14_reg"),
-    "dinov2_vitb14_reg": ("facebookresearch/dinov2", "dinov2_vitb14_reg"),
-    "dinov2_vitl14_reg": ("facebookresearch/dinov2", "dinov2_vitl14_reg"),
-    "dinov2_vitg14_reg": ("facebookresearch/dinov2", "dinov2_vitg14_reg"),
+# HuggingFace model names
+HF_MODELS = {
+    "dinov2_vits14": "facebook/dinov2-small",
+    "dinov2_vitb14": "facebook/dinov2-base",
+    "dinov2_vitl14": "facebook/dinov2-large",
+    "dinov2_vitg14": "facebook/dinov2-giant",
+    "dinov2_vits14_reg": "facebook/dinov2-small-imagenet1k-1-layer",
+    "dinov2_vitb14_reg": "facebook/dinov2-base-imagenet1k-1-layer",
 }
 
 
 class DINOv2Wrapper(BackboneWrapper):
-    """Wrapper for DINOv2 ViT models."""
+    """Wrapper for DINOv2 ViT models via HuggingFace."""
 
     def __init__(
         self,
-        model_name: str = "dinov2_vitb14",
-        device: str | torch.device = "cpu",
-        model: nn.Module | None = None,
+        model_name: str = "dinov2_vits14",
+        device: str = "cpu",
+        model: Optional[nn.Module] = None,
     ):
-        if model is None:
-            if model_name in DINOV2_MODELS:
-                repo, entry = DINOV2_MODELS[model_name]
-                model = torch.hub.load(repo, entry)
-            else:
-                raise ValueError(
-                    f"Unknown model: {model_name}. "
-                    f"Available: {list(DINOV2_MODELS.keys())}. "
-                    f"Or pass model= directly."
-                )
         self.model_name = model_name
+
+        if model is None:
+            from transformers import AutoModel
+            hf_name = HF_MODELS.get(model_name, model_name)
+            model = AutoModel.from_pretrained(hf_name, attn_implementation="eager")
+
+        self._embed_dim = model.config.hidden_size
+        self._num_layers = model.config.num_hidden_layers
+        self._patch_size = model.config.patch_size
+        self._num_heads = model.config.num_attention_heads
+
         super().__init__(model, device)
 
     @property
     def embed_dim(self) -> int:
-        return self.model.embed_dim
+        return self._embed_dim
 
     @property
     def num_layers(self) -> int:
-        return len(self.model.blocks)
+        return self._num_layers
 
     @property
     def patch_size(self) -> int:
-        return self.model.patch_embed.patch_size[0]
+        return self._patch_size
 
     @property
-    def layer_modules(self) -> list[nn.Module]:
-        return list(self.model.blocks)
+    def layer_modules(self) -> list:
+        return list(self.model.encoder.layer)
 
     def get_layer_name(self, layer_idx: int) -> str:
         return f"block_{layer_idx}"
 
-    def _register_attention_hooks(self, layers: list[int]) -> None:
-        """Hook into attention modules to capture attention weights."""
-        for idx in layers:
-            block = self.model.blocks[idx]
-            attn_module = block.attn
-            name = f"attn_{idx}"
+    @torch.no_grad()
+    def extract(self, images: torch.Tensor) -> ModelOutput:
+        """Extract features from images.
 
-            def make_attn_hook(n: str):
-                def hook_fn(mod, input, output):
-                    # DINOv2 attention: output is (attn_output, attn_weights)
-                    # We need to modify the forward to return attention weights.
-                    # Instead, we hook into qkv and compute attention ourselves.
-                    pass
-                return hook_fn
+        Args:
+            images: (B, 3, H, W) tensor, already preprocessed.
+        """
+        images = images.to(self.device)
 
-            # For attention maps, we use a different strategy:
-            # override the forward with attn output
-            # This is done in the extract_with_attention method
-            pass
+        # Use output_hidden_states to get all intermediate features
+        outputs = self.model(
+            pixel_values=images,
+            output_hidden_states=True,
+            output_attentions=False,
+        )
+
+        last_hidden = outputs.last_hidden_state  # (B, 1+N, D)
+        cls_token = last_hidden[:, 0]  # (B, D)
+        patch_tokens = last_hidden[:, 1:]  # (B, N, D)
+
+        # Collect intermediate features
+        intermediate = {}
+        if outputs.hidden_states is not None:
+            for i, hs in enumerate(outputs.hidden_states):
+                if i == 0:
+                    continue  # skip embedding layer output
+                intermediate[f"block_{i-1}"] = hs
+
+        return ModelOutput(
+            cls_token=cls_token,
+            patch_tokens=patch_tokens,
+            intermediate_features=intermediate,
+        )
 
     @torch.no_grad()
     def extract_with_attention(self, images: torch.Tensor) -> ModelOutput:
-        """Extract features AND attention maps using DINOv2's built-in method."""
+        """Extract features AND attention maps."""
         images = images.to(self.device)
 
-        # Use get_intermediate_layers if available (DINOv2 API)
-        if hasattr(self.model, "get_intermediate_layers"):
-            # Get all intermediate features
-            intermediate = self.model.get_intermediate_layers(
-                images,
-                n=self.num_layers,
-                reshape=False,
-                return_class_token=True,
-            )
-            # intermediate is list of (patch_tokens, cls_token)
-            features = {}
-            for i, (patches, cls) in enumerate(intermediate):
-                features[f"block_{i}"] = torch.cat([cls.unsqueeze(1), patches], dim=1)
+        outputs = self.model(
+            pixel_values=images,
+            output_hidden_states=True,
+            output_attentions=True,
+        )
 
-            # Final output
-            last_patches, last_cls = intermediate[-1]
-            self._intermediate_features = features
+        last_hidden = outputs.last_hidden_state
+        cls_token = last_hidden[:, 0]
+        patch_tokens = last_hidden[:, 1:]
 
-            return ModelOutput(
-                cls_token=last_cls,
-                patch_tokens=last_patches,
-                intermediate_features=dict(features),
-            )
+        intermediate = {}
+        if outputs.hidden_states is not None:
+            for i, hs in enumerate(outputs.hidden_states):
+                if i == 0:
+                    continue
+                intermediate[f"block_{i-1}"] = hs
 
-        # Fallback: just run forward with hooks
-        return self.extract(images)
+        attn_maps = {}
+        if outputs.attentions is not None:
+            for i, attn in enumerate(outputs.attentions):
+                attn_maps[f"block_{i}"] = attn.detach().cpu()
 
-    def _parse_output(self, raw_output: Any) -> ModelOutput:
-        """DINOv2 forward returns (B, 1+N, D) tensor or just cls token depending on call."""
-        if isinstance(raw_output, torch.Tensor):
-            if raw_output.ndim == 2:
-                # CLS token only
-                return ModelOutput(
-                    cls_token=raw_output,
-                    intermediate_features=dict(self._intermediate_features),
-                    attention_maps=dict(self._attention_maps),
-                    raw_output=raw_output,
-                )
-            elif raw_output.ndim == 3:
-                # Full sequence: [CLS] + patches
-                return ModelOutput(
-                    cls_token=raw_output[:, 0],
-                    patch_tokens=raw_output[:, 1:],
-                    intermediate_features=dict(self._intermediate_features),
-                    attention_maps=dict(self._attention_maps),
-                    raw_output=raw_output,
-                )
-        return ModelOutput(raw_output=raw_output)
+        return ModelOutput(
+            cls_token=cls_token,
+            patch_tokens=patch_tokens,
+            intermediate_features=intermediate,
+            attention_maps=attn_maps,
+        )
 
     @torch.no_grad()
-    def extract_attention_maps(self, images: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Extract attention maps from all layers.
+    def extract_attention_maps(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Extract attention maps from all layers."""
+        output = self.extract_with_attention(images)
+        return output.attention_maps
 
-        Returns dict mapping layer name to attention tensor (B, H, N, N).
-        """
-        images = images.to(self.device)
-        attn_maps = {}
-
-        # Manually run forward, capturing attention at each block
-        x = self.model.prepare_tokens_with_masks(images) if hasattr(self.model, "prepare_tokens_with_masks") else self.model.patch_embed(images)
-
-        # Handle different DINOv2 versions
-        if hasattr(self.model, "prepare_tokens_with_masks"):
-            x = self.model.prepare_tokens_with_masks(images)
-        else:
-            x = self.model.patch_embed(images)
-            # Add CLS token
-            cls_tokens = self.model.cls_token.expand(x.shape[0], -1, -1)
-            x = torch.cat((cls_tokens, x), dim=1)
-            x = x + self.model.pos_embed
-
-        for i, block in enumerate(self.model.blocks):
-            # Compute attention weights manually
-            B, N, C = x.shape
-            qkv = block.attn.qkv(block.norm1(x) if hasattr(block, "norm1") else x)
-            qkv = qkv.reshape(B, N, 3, block.attn.num_heads, C // block.attn.num_heads)
-            qkv = qkv.permute(2, 0, 3, 1, 4)
-            q, k, v = qkv.unbind(0)
-
-            scale = (C // block.attn.num_heads) ** -0.5
-            attn = (q @ k.transpose(-2, -1)) * scale
-            attn = attn.softmax(dim=-1)
-            attn_maps[f"block_{i}"] = attn.detach().cpu()
-
-            # Continue normal forward
-            x = block(x)
-
-        return attn_maps
+    def _parse_output(self, raw_output: Any) -> ModelOutput:
+        # Not used — we override extract() directly
+        return ModelOutput(raw_output=raw_output)
 
 
 def load_dinov2(
-    model_name: str = "dinov2_vitb14",
-    device: str | torch.device = "cpu",
+    model_name: str = "dinov2_vits14",
+    device: str = "cpu",
 ) -> DINOv2Wrapper:
     """Convenience loader."""
     return DINOv2Wrapper(model_name=model_name, device=device)
