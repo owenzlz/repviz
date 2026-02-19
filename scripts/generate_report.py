@@ -133,8 +133,9 @@ for tag, model_name in MODEL_NAMES.items():
 
 # Compute spatial dims from first image
 first_label = image_labels[0]
-N = model_data["S"]["patch_tokens"][first_label].shape[1]
-h = w = int(N ** 0.5)
+N = int(model_data["S"]["patch_tokens"][first_label].shape[1])
+h = w = int(round(N ** 0.5))
+assert h * w == N, f"Non-square grid: {h}x{w} != {N}"
 p(f"Patch grid: {h}x{w} = {N} patches")
 
 
@@ -260,8 +261,10 @@ try:
         color = "#2196F3" if tag == "S" else "#009688"
         alpha = 0.6
         
-        axes[0, 0].hist(cos_dist.numpy(), bins=80, alpha=alpha, label=f"DINOv2-{tag}", color=color, density=True)
-        axes[0, 1].hist(norms.numpy(), bins=60, alpha=alpha, label=f"DINOv2-{tag}", color=color, density=True)
+        cos_dist_np = cos_dist if isinstance(cos_dist, np.ndarray) else cos_dist.numpy()
+        norms_np = norms if isinstance(norms, np.ndarray) else norms.numpy()
+        axes[0, 0].hist(cos_dist_np, bins=80, alpha=alpha, label=f"DINOv2-{tag}", color=color, density=True)
+        axes[0, 1].hist(norms_np, bins=60, alpha=alpha, label=f"DINOv2-{tag}", color=color, density=True)
     
     axes[0, 0].set_title("Cosine Similarity Distribution")
     axes[0, 0].set_xlabel("Cosine Similarity")
@@ -283,9 +286,9 @@ try:
     id_vals_2nn = {t: float(metrics["Intrinsic Dim (2-NN)"][t]) for t in ["S", "B"]}
     id_vals_mle = {t: float(metrics["Intrinsic Dim (MLE)"][t]) for t in ["S", "B"]}
     x = np.arange(2)
-    w = 0.3
-    axes[1, 1].bar(x - w/2, [id_vals_2nn["S"], id_vals_2nn["B"]], w, label="2-NN", color=["#2196F3", "#009688"])
-    axes[1, 1].bar(x + w/2, [id_vals_mle["S"], id_vals_mle["B"]], w, label="MLE", color=["#64B5F6", "#4DB6AC"])
+    bw = 0.3
+    axes[1, 1].bar(x - bw/2, [id_vals_2nn["S"], id_vals_2nn["B"]], bw, label="2-NN", color=["#2196F3", "#009688"])
+    axes[1, 1].bar(x + bw/2, [id_vals_mle["S"], id_vals_mle["B"]], bw, label="MLE", color=["#64B5F6", "#4DB6AC"])
     axes[1, 1].set_xticks(x)
     axes[1, 1].set_xticklabels(["S", "B"])
     axes[1, 1].set_title("Intrinsic Dimensionality")
@@ -326,8 +329,8 @@ try:
             else:
                 attn_to_patches = rollout[0]
             # Trim or pad to match h*w
-            attn_to_patches = attn_to_patches[:h*w]
-            attn_map = attn_to_patches.reshape(h, w)
+            attn_to_patches = attn_to_patches[:int(h*w)]
+            attn_map = attn_to_patches.reshape(int(h), int(w))
             if isinstance(attn_map, torch.Tensor):
                 attn_map = attn_map.numpy()
             attn_map = (attn_map - attn_map.min()) / (attn_map.max() - attn_map.min() + 1e-8)
@@ -358,7 +361,7 @@ try:
         entropies = []
         for k in layer_keys:
             a = attn_maps[k]  # (1, H, N_full, N_full)
-            dist = attention_distance(a, h=h, w=w)
+            dist = attention_distance(a, h=int(h), w=int(w))
             ent = attention_entropy(a)
             distances.append(dist.mean().item())
             entropies.append(ent.mean().item())
@@ -472,10 +475,10 @@ try:
             
             # Cosine sim from center patch
             center_idx = N // 2
-            sim = cosine_similarity_map(patches, query_idx=center_idx, h=h, w=w)
+            sim = cosine_similarity_map(patches, query_idx=center_idx, h=int(h), w=int(w))
             
             # Clustering
-            clusters = patch_clustering(patches, n_clusters=6, h=h, w=w)
+            clusters = patch_clustering(patches, n_clusters=6, h=int(h), w=int(w))
             
             axes[0, i].imshow(img_np)
             axes[0, i].set_title(label, fontsize=10)
@@ -516,7 +519,7 @@ try:
     
     # Augmentation invariance
     fig, ax = plt.subplots(figsize=(10, 5))
-    width = 0.35
+    bw = 0.35
     aug_results = {}
     
     for idx, tag in enumerate(["S", "B"]):
@@ -529,9 +532,9 @@ try:
         vals = [scores[n] for n in names]
         x = np.arange(len(names))
         color = "#2196F3" if tag == "S" else "#009688"
-        ax.bar(x + idx * width, vals, width, label=f"DINOv2-{tag}", color=color)
+        ax.bar(x + idx * bw, vals, bw, label=f"DINOv2-{tag}", color=color)
     
-    ax.set_xticks(x + width/2)
+    ax.set_xticks(x + bw/2)
     ax.set_xticklabels(names, rotation=30, ha="right")
     ax.set_ylim(0, 1)
     ax.set_ylabel("Cosine Similarity")
@@ -720,9 +723,9 @@ try:
     # Redundancy bars
     r_metrics = list(redundancy_vals["S"].keys())
     x = np.arange(len(r_metrics))
-    w = 0.35
-    axes[1].bar(x - w/2, [redundancy_vals["S"][m] for m in r_metrics], w, label="DINOv2-S", color="#2196F3")
-    axes[1].bar(x + w/2, [redundancy_vals["B"][m] for m in r_metrics], w, label="DINOv2-B", color="#009688")
+    bw = 0.35
+    axes[1].bar(x - bw/2, [redundancy_vals["S"][m] for m in r_metrics], bw, label="DINOv2-S", color="#2196F3")
+    axes[1].bar(x + bw/2, [redundancy_vals["B"][m] for m in r_metrics], bw, label="DINOv2-B", color="#009688")
     axes[1].set_xticks(x)
     axes[1].set_xticklabels([m.replace("_", "\n") for m in r_metrics], fontsize=8)
     axes[1].set_title("Channel Redundancy Metrics")
