@@ -40,6 +40,30 @@ DEMO_URLS = [
     ("bicycle", "http://images.cocodataset.org/val2017/000000174482.jpg"),
     ("bathroom", "http://images.cocodataset.org/val2017/000000403385.jpg"),
     ("baseball", "http://images.cocodataset.org/val2017/000000006471.jpg"),
+    ("surfing", "http://images.cocodataset.org/val2017/000000080340.jpg"),
+    ("horses", "http://images.cocodataset.org/val2017/000000185250.jpg"),
+    ("airplane", "http://images.cocodataset.org/val2017/000000404568.jpg"),
+    ("dog", "http://images.cocodataset.org/val2017/000000579635.jpg"),
+    ("pizza", "http://images.cocodataset.org/val2017/000000015335.jpg"),
+    ("train", "http://images.cocodataset.org/val2017/000000581615.jpg"),
+    ("skiing", "http://images.cocodataset.org/val2017/000000321214.jpg"),
+    ("zebra", "http://images.cocodataset.org/val2017/000000078959.jpg"),
+    ("boat", "http://images.cocodataset.org/val2017/000000463618.jpg"),
+    ("laptop", "http://images.cocodataset.org/val2017/000000153299.jpg"),
+    ("bear", "http://images.cocodataset.org/val2017/000000458755.jpg"),
+    ("bird", "http://images.cocodataset.org/val2017/000000022969.jpg"),
+    ("car", "http://images.cocodataset.org/val2017/000000017627.jpg"),
+    ("sheep", "http://images.cocodataset.org/val2017/000000180135.jpg"),
+    ("tennis", "http://images.cocodataset.org/val2017/000000520301.jpg"),
+    ("motorcycle", "http://images.cocodataset.org/val2017/000000084477.jpg"),
+    ("cow", "http://images.cocodataset.org/val2017/000000069356.jpg"),
+    ("umbrella", "http://images.cocodataset.org/val2017/000000532493.jpg"),
+    ("food", "http://images.cocodataset.org/val2017/000000226111.jpg"),
+    ("snowboard", "http://images.cocodataset.org/val2017/000000191381.jpg"),
+    ("clock", "http://images.cocodataset.org/val2017/000000462565.jpg"),
+    ("bridge", "http://images.cocodataset.org/val2017/000000459467.jpg"),
+    ("elephant", "http://images.cocodataset.org/val2017/000000087875.jpg"),
+    ("beach", "http://images.cocodataset.org/val2017/000000176778.jpg"),
 ]
 
 MODEL_NAMES = {
@@ -156,17 +180,36 @@ try:
         pca_maps, _ = batch_pca_feature_maps(all_patches, h, w)
         
         n_imgs = len(image_labels)
-        fig, axes = plt.subplots(2, n_imgs, figsize=(3*n_imgs, 6))
+        ncols = 8
+        n_groups = (n_imgs + ncols - 1) // ncols  # number of row-pairs
+        nrows = n_groups * 2  # each group has original + PCA row
+        fig, axes = plt.subplots(nrows, ncols, figsize=(3*ncols, 3*nrows))
         for i, label in enumerate(image_labels):
+            group = i // ncols
+            col = i % ncols
+            row_orig = group * 2
+            row_pca = group * 2 + 1
             img_np = inverse_normalize(images_tensor[label])
-            axes[0, i].imshow(img_np)
-            axes[0, i].set_title(label, fontsize=9)
-            axes[0, i].axis("off")
-            axes[1, i].imshow(pca_maps[i])
-            axes[1, i].axis("off")
-        axes[0, 0].set_ylabel("Original", fontsize=11)
-        axes[1, 0].set_ylabel("PCA RGB", fontsize=11)
-        fig.suptitle(f"DINOv2-{tag}: PCA Feature Maps", fontsize=14, fontweight="bold")
+            axes[row_orig, col].imshow(img_np)
+            axes[row_orig, col].set_title(label, fontsize=8)
+            axes[row_orig, col].axis("off")
+            axes[row_pca, col].imshow(pca_maps[i])
+            axes[row_pca, col].axis("off")
+        # Turn off unused axes
+        for r in range(nrows):
+            for c in range(ncols):
+                group = r // 2
+                start_idx = group * ncols
+                if r % 2 == 0:
+                    if start_idx + c >= n_imgs:
+                        axes[r, c].axis("off")
+                else:
+                    if start_idx + c >= n_imgs:
+                        axes[r, c].axis("off")
+        for g in range(n_groups):
+            axes[g*2, 0].set_ylabel("Original", fontsize=10)
+            axes[g*2+1, 0].set_ylabel("PCA RGB", fontsize=10)
+        fig.suptitle(f"DINOv2-{tag}: PCA Feature Maps ({n_imgs} images)", fontsize=14, fontweight="bold")
         fig.tight_layout()
         add_figure(f"pca_grid_{tag}", fig,
             f"PCA Feature Maps — DINOv2-{tag}",
@@ -320,7 +363,7 @@ p("\n[4/11] Attention Maps...")
 try:
     from repviz.analyses.attention import attention_rollout, attention_distance, attention_entropy
     
-    select_labels = image_labels[:4]
+    select_labels = image_labels[:6]
     
     for tag in TAGS:
         fig, axes = plt.subplots(2, len(select_labels), figsize=(4*len(select_labels), 8))
@@ -469,7 +512,7 @@ p("\n[6/11] Dense Features...")
 try:
     from repviz.analyses.dense import cosine_similarity_map, patch_clustering
     
-    select_labels = image_labels[:4]
+    select_labels = image_labels[:6]
     
     for tag in TAGS:
         fig, axes = plt.subplots(3, len(select_labels), figsize=(4*len(select_labels), 12))
