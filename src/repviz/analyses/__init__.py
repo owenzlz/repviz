@@ -9,6 +9,7 @@ from . import robustness
 from . import cross_model
 from . import neurons
 from . import weights
+from . import activations
 
 __all__ = [
     "geometry",
@@ -20,4 +21,5 @@ __all__ = [
     "cross_model",
     "neurons",
     "weights",
+    "activations",
 ]

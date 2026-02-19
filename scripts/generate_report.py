@@ -33,13 +33,13 @@ section_html = {}  # section_name -> html string
 
 DEMO_URLS = [
     ("cats", "http://images.cocodataset.org/val2017/000000039769.jpg"),
-    ("kitchen", "http://images.cocodataset.org/val2017/000000397133.jpg"),
-    ("tennis", "http://images.cocodataset.org/val2017/000000037777.jpg"),
-    ("elephant", "http://images.cocodataset.org/val2017/000000252219.jpg"),
-    ("donut", "http://images.cocodataset.org/val2017/000000087038.jpg"),
-    ("giraffe", "http://images.cocodataset.org/val2017/000000174482.jpg"),
-    ("bus", "http://images.cocodataset.org/val2017/000000403385.jpg"),
-    ("person", "http://images.cocodataset.org/val2017/000000006471.jpg"),
+    ("bakery", "http://images.cocodataset.org/val2017/000000397133.jpg"),
+    ("kitchen", "http://images.cocodataset.org/val2017/000000037777.jpg"),
+    ("street", "http://images.cocodataset.org/val2017/000000252219.jpg"),
+    ("skatepark", "http://images.cocodataset.org/val2017/000000087038.jpg"),
+    ("bicycle", "http://images.cocodataset.org/val2017/000000174482.jpg"),
+    ("bathroom", "http://images.cocodataset.org/val2017/000000403385.jpg"),
+    ("baseball", "http://images.cocodataset.org/val2017/000000006471.jpg"),
 ]
 
 MODEL_NAMES = {
@@ -759,9 +759,278 @@ except Exception as e:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  SECTION 11: Build HTML Report
+#  SECTION 11: Activation Analysis
 # ══════════════════════════════════════════════════════════════════════
-p("\n[11/11] Building HTML report...")
+p("\n[11/12] Activation Analysis...")
+try:
+    from repviz.analyses.activations import (
+        activation_statistics_per_layer,
+        massive_activation_analysis,
+        per_neuron_activation_profile,
+        activation_distribution_per_layer,
+        layer_activation_heatmap,
+        token_activation_analysis,
+    )
+
+    def _sort_layer_keys(keys):
+        def _k(k):
+            parts = k.split("_")
+            return int(parts[-1]) if parts[-1].isdigit() else 0
+        return sorted(keys, key=_k)
+
+    # Use first image for activation analysis
+    act_label = first_label
+
+    # ── 1. Activation Statistics Overview (all models overlaid) ──
+    p("  Computing activation statistics...")
+    all_act_stats = {}
+    for tag in TAGS:
+        inter = model_data[tag]["intermediate"][act_label]
+        all_act_stats[tag] = activation_statistics_per_layer(inter)
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    stat_names = ["mean", "std", "kurtosis", "skewness"]
+    stat_titles = ["Mean Activation", "Std of Activations", "Kurtosis", "Skewness"]
+    for si, (sn, st) in enumerate(zip(stat_names, stat_titles)):
+        ax = axes[si // 2, si % 2]
+        for tag in TAGS:
+            stats_dict = all_act_stats[tag]
+            layer_keys = _sort_layer_keys(stats_dict.keys())
+            vals = [stats_dict[k][sn] for k in layer_keys]
+            ax.plot(range(len(vals)), vals, 'o-', label=f"DINOv2-{tag}", color=TAG_COLORS[tag], markersize=4)
+        ax.set_xlabel("Layer Index")
+        ax.set_ylabel(st)
+        ax.set_title(st)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    fig.suptitle("Activation Statistics Across All Layers", fontsize=14, fontweight="bold")
+    fig.tight_layout()
+    add_figure("act_stats_overview", fig,
+        "Activation Statistics Overview — All Models",
+        "Mean activation, standard deviation, kurtosis, and skewness of all activations per layer. "
+        "Kurtosis measures heavy-tailedness: high values indicate outlier activations (massive activations). "
+        "Skewness reveals asymmetry in the activation distribution. These statistics evolve across layers "
+        "as representations become more refined and task-specific.")
+
+    # ── 2. Per-Layer Activation Distributions ──
+    p("  Computing per-layer distributions...")
+    for tag in TAGS:
+        inter = model_data[tag]["intermediate"][act_label]
+        dists = activation_distribution_per_layer(inter)
+        layer_keys = _sort_layer_keys(dists.keys())
+        n_layers = len(layer_keys)
+        ncols = min(6, n_layers)
+        nrows = (n_layers + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 2.5 * nrows))
+        axes_flat = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+        for i, lk in enumerate(layer_keys):
+            bin_edges, counts = dists[lk]
+            centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+            axes_flat[i].fill_between(centers, counts, alpha=0.7, color=TAG_COLORS[tag])
+            axes_flat[i].set_title(lk, fontsize=8)
+            axes_flat[i].tick_params(labelsize=6)
+        for i in range(len(layer_keys), len(axes_flat)):
+            axes_flat[i].axis("off")
+        fig.suptitle(f"DINOv2-{tag}: Activation Distributions per Layer", fontsize=13, fontweight="bold")
+        fig.tight_layout()
+        add_figure(f"act_dist_{tag}", fig,
+            f"Per-Layer Activation Distributions — DINOv2-{tag}",
+            f"Histograms of activation values at each transformer layer. Early layers tend to have "
+            f"near-Gaussian distributions, while deeper layers may develop heavier tails as certain "
+            f"neurons specialize. Long tails indicate the presence of massive activations — a phenomenon "
+            f"observed in both LLMs and ViTs.")
+
+    # ── 3. Massive Activation Analysis ──
+    p("  Massive activation analysis...")
+    for tag in TAGS:
+        inter = model_data[tag]["intermediate"][act_label]
+        massive = massive_activation_analysis(inter, threshold_std=5.0, top_k=20)
+        layer_keys = _sort_layer_keys(massive.keys())
+        n_layers = len(layer_keys)
+
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+        # Left: Heatmap of top neuron activations per layer
+        n_top = 20
+        heatmap_data = np.zeros((n_layers, n_top))
+        for i, lk in enumerate(layer_keys):
+            vals = massive[lk]["topk_values"][:n_top]
+            heatmap_data[i, :len(vals)] = vals
+        im = axes[0].imshow(heatmap_data, aspect="auto", cmap="hot", interpolation="nearest")
+        axes[0].set_xlabel("Top Neuron Rank")
+        axes[0].set_ylabel("Layer")
+        axes[0].set_yticks(range(n_layers))
+        axes[0].set_yticklabels(layer_keys, fontsize=7)
+        axes[0].set_title("Top-20 Neuron Max Activations per Layer")
+        plt.colorbar(im, ax=axes[0], shrink=0.8)
+
+        # Right: Fraction of massive neurons per layer
+        fracs = [massive[lk]["frac_massive"] for lk in layer_keys]
+        axes[1].barh(range(n_layers), fracs, color=TAG_COLORS[tag])
+        axes[1].set_yticks(range(n_layers))
+        axes[1].set_yticklabels(layer_keys, fontsize=7)
+        axes[1].set_xlabel("Fraction of Massive Neurons (>5σ)")
+        axes[1].set_title("Massive Neuron Fraction per Layer")
+
+        fig.suptitle(f"DINOv2-{tag}: Massive Activation Analysis", fontsize=13, fontweight="bold")
+        fig.tight_layout()
+        add_figure(f"massive_act_{tag}", fig,
+            f"Massive Activation Analysis — DINOv2-{tag}",
+            f"Left: max activation values of the top-20 most active neurons at each layer. "
+            f"Right: fraction of neurons exceeding 5 standard deviations from the mean. "
+            f"Massive activations (analogous to those found in LLMs, ref: 'Massive Activations in Large "
+            f"Language Models') can dominate representation norms and affect downstream tasks. "
+            f"Their prevalence typically increases in deeper layers.")
+
+    # ── 4. Neuron Activation Heatmap ──
+    p("  Neuron activation heatmaps...")
+    for tag in TAGS:
+        inter = model_data[tag]["intermediate"][act_label]
+        heatmap = layer_activation_heatmap(inter)  # (n_layers, D)
+        layer_keys = _sort_layer_keys(inter.keys())
+
+        fig, ax = plt.subplots(figsize=(16, max(4, len(layer_keys) * 0.4)))
+        # Subsample neurons if too many for display
+        D = heatmap.shape[1]
+        if D > 200:
+            step = D // 200
+            heatmap_disp = heatmap[:, ::step]
+            xlabel = f"Neuron Index (every {step}th)"
+        else:
+            heatmap_disp = heatmap
+            xlabel = "Neuron Index"
+        im = ax.imshow(heatmap_disp, aspect="auto", cmap="RdBu_r", interpolation="nearest",
+                       vmin=np.percentile(heatmap_disp, 2), vmax=np.percentile(heatmap_disp, 98))
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Layer")
+        ax.set_yticks(range(len(layer_keys)))
+        ax.set_yticklabels(layer_keys, fontsize=7)
+        ax.set_title(f"DINOv2-{tag}: Mean Activation Heatmap (Layer × Neuron)")
+        plt.colorbar(im, ax=ax, shrink=0.8)
+        fig.tight_layout()
+        add_figure(f"neuron_heatmap_{tag}", fig,
+            f"Neuron Activation Heatmap — DINOv2-{tag}",
+            f"Each row is a layer, each column a neuron (channel). Color indicates mean activation. "
+            f"Bright spots reveal neurons with consistently high activations (potentially massive activations). "
+            f"Dark columns indicate dead or near-dead neurons that waste model capacity. "
+            f"The pattern reveals how neuron utilization evolves through the network.")
+
+    # ── 5. CLS vs Patch Token Comparison ──
+    p("  CLS vs Patch token analysis...")
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    for tag in TAGS:
+        inter = model_data[tag]["intermediate"][act_label]
+        token_stats = token_activation_analysis(inter)
+        layer_keys = _sort_layer_keys(token_stats.keys())
+        cls_means = [token_stats[k]["cls_mean"] for k in layer_keys]
+        patch_means = [token_stats[k]["patch_mean"] for k in layer_keys]
+        cls_stds = [token_stats[k]["cls_std"] for k in layer_keys]
+        patch_stds = [token_stats[k]["patch_std"] for k in layer_keys]
+
+        color = TAG_COLORS[tag]
+        x = range(len(layer_keys))
+        axes[0].plot(x, cls_means, 'o-', color=color, label=f"{tag} CLS", markersize=4)
+        axes[0].plot(x, patch_means, 's--', color=color, label=f"{tag} Patch", markersize=4, alpha=0.6)
+        axes[1].plot(x, cls_stds, 'o-', color=color, label=f"{tag} CLS", markersize=4)
+        axes[1].plot(x, patch_stds, 's--', color=color, label=f"{tag} Patch", markersize=4, alpha=0.6)
+
+    axes[0].set_xlabel("Layer Index")
+    axes[0].set_ylabel("Mean Activation")
+    axes[0].set_title("CLS vs Patch: Mean Activation")
+    axes[0].legend(fontsize=7, ncol=2)
+    axes[0].grid(True, alpha=0.3)
+    axes[1].set_xlabel("Layer Index")
+    axes[1].set_ylabel("Std of Activation")
+    axes[1].set_title("CLS vs Patch: Activation Std")
+    axes[1].legend(fontsize=7, ncol=2)
+    axes[1].grid(True, alpha=0.3)
+    fig.suptitle("CLS Token vs Patch Token Activations", fontsize=14, fontweight="bold")
+    fig.tight_layout()
+    add_figure("cls_vs_patch", fig,
+        "CLS vs Patch Token Activations — All Models",
+        "The [CLS] token serves as a global image representation and often behaves very differently from "
+        "patch tokens. Divergence in mean/std between CLS and patch tokens across layers reveals how the "
+        "model progressively separates global semantics (CLS) from local spatial information (patches). "
+        "Larger models may show more pronounced CLS specialization in deeper layers.")
+
+    # ── 6. Per-Neuron Profiles (final layer scatter) ──
+    p("  Per-neuron profiles...")
+    for tag in TAGS:
+        inter = model_data[tag]["intermediate"][act_label]
+        profiles = per_neuron_activation_profile(inter)
+        layer_keys = _sort_layer_keys(profiles.keys())
+        last_layer = layer_keys[-1]
+        prof = profiles[last_layer]
+
+        fig, ax = plt.subplots(figsize=(10, 7))
+        scatter = ax.scatter(
+            prof["neuron_mean"], prof["neuron_max"],
+            c=prof["neuron_std"], cmap="viridis", alpha=0.7, s=15, edgecolors="none"
+        )
+        plt.colorbar(scatter, ax=ax, label="Neuron Std")
+        ax.set_xlabel("Mean Activation")
+        ax.set_ylabel("Max Activation")
+        ax.set_title(f"DINOv2-{tag}: Per-Neuron Profile (Final Layer: {last_layer})")
+
+        # Annotate massive activation outliers
+        max_thresh = np.percentile(prof["neuron_max"], 99)
+        outlier_mask = prof["neuron_max"] > max_thresh
+        outlier_idx = np.where(outlier_mask)[0]
+        for oi in outlier_idx[:5]:
+            ax.annotate(f"n{oi}", (prof["neuron_mean"][oi], prof["neuron_max"][oi]),
+                        fontsize=7, color="red", fontweight="bold")
+
+        ax.grid(True, alpha=0.3)
+        n_dead = prof["n_dead"]
+        n_sat = prof["n_saturated"]
+        n_mass = prof["n_massive_act"]
+        ax.text(0.02, 0.98, f"Dead: {n_dead} | Saturated: {n_sat} | Massive: {n_mass}",
+                transform=ax.transAxes, fontsize=9, va="top",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.8))
+        fig.tight_layout()
+        add_figure(f"neuron_profile_{tag}", fig,
+            f"Per-Neuron Activation Profile — DINOv2-{tag} (Final Layer)",
+            f"Each point is a neuron at the final transformer layer. X = mean activation, Y = max activation, "
+            f"color = standard deviation. Outliers in the upper region are 'massive activation' neurons — "
+            f"they fire extremely strongly on specific inputs while remaining moderate on average. "
+            f"Dead neurons cluster at the origin. This reveals how model capacity is utilized.")
+
+    # ── 7. Activation Norm Progression ──
+    p("  Activation norm progression...")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for tag in TAGS:
+        inter = model_data[tag]["intermediate"][act_label]
+        layer_keys = _sort_layer_keys(inter.keys())
+        norms = []
+        for lk in layer_keys:
+            feat = inter[lk].float()  # (B, seq_len, D)
+            # L2 norm of the full activation vector, averaged over tokens and batch
+            n = torch.norm(feat, dim=-1).mean().item()
+            norms.append(n)
+        ax.plot(range(len(norms)), norms, 'o-', label=f"DINOv2-{tag}", color=TAG_COLORS[tag], markersize=5)
+    ax.set_xlabel("Layer Index")
+    ax.set_ylabel("Mean L2 Norm")
+    ax.set_title("Activation L2 Norm Progression Across Layers")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    add_figure("act_norm_progression", fig,
+        "Activation Norm Progression — All Models",
+        "The L2 norm of activation vectors at each layer shows how representation magnitude evolves. "
+        "Norm growth patterns differ between model sizes and can indicate the presence of massive "
+        "activations that inflate norms in specific layers. Comparing S, B, and L reveals how model "
+        "scale affects activation dynamics.")
+
+    p("  Done.")
+except Exception as e:
+    p(f"  FAILED: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  SECTION 12: Build HTML Report
+# ══════════════════════════════════════════════════════════════════════
+p("\n[12/12] Building HTML report...")
 
 # Collect parameters
 model_params = {}
@@ -783,6 +1052,14 @@ sections = [
     ("weights", "Weight Analysis", [f for f in figures if f.startswith("weight_")]),
     ("crossmodel", "Cross-Model Comparison", ["cross_model_cka"]),
     ("neurons", "Neuron Analysis", ["neuron_analysis"]),
+    ("activations", "Activation Analysis",
+     ["act_stats_overview"] +
+     [f for f in figures if f.startswith("act_dist_")] +
+     [f for f in figures if f.startswith("massive_act_")] +
+     [f for f in figures if f.startswith("neuron_heatmap_")] +
+     ["cls_vs_patch"] +
+     [f for f in figures if f.startswith("neuron_profile_")] +
+     ["act_norm_progression"]),
 ]
 
 # Build metrics table HTML
