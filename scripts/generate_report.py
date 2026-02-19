@@ -45,7 +45,12 @@ DEMO_URLS = [
 MODEL_NAMES = {
     "S": "dinov2_vits14",
     "B": "dinov2_vitb14",
+    "L": "dinov2_vitl14",
 }
+
+TAGS = list(MODEL_NAMES.keys())
+TAG_COLORS = {"S": "#2196F3", "B": "#009688", "L": "#E91E63"}
+TAG_COLORS_LIGHT = {"S": "#64B5F6", "B": "#4DB6AC", "L": "#F48FB1"}
 
 
 def fig_to_b64(fig):
@@ -146,7 +151,7 @@ p("\n[1/11] PCA Feature Maps...")
 try:
     from repviz.analyses.geometry import batch_pca_feature_maps, pca_feature_map
     
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         all_patches = torch.cat([model_data[tag]["patch_tokens"][l] for l in image_labels], dim=0)
         pca_maps, _ = batch_pca_feature_maps(all_patches, h, w)
         
@@ -185,7 +190,7 @@ try:
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     
     er_vals = {}
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         all_patches = torch.cat([model_data[tag]["patch_tokens"][l] for l in image_labels], dim=0)
         all_flat = all_patches.reshape(-1, model_data[tag]["embed_dim"])
         sv = singular_value_spectrum(all_flat[:2000])
@@ -203,8 +208,7 @@ try:
     axes[0].grid(True, alpha=0.3)
     
     tags = list(er_vals.keys())
-    colors = ["#2196F3", "#009688"]
-    axes[1].bar(tags, [er_vals[t] for t in tags], color=colors, width=0.5)
+    axes[1].bar(tags, [er_vals[t] for t in tags], color=[TAG_COLORS[t] for t in tags], width=0.5)
     axes[1].set_ylabel("Effective Rank")
     axes[1].set_title("Effective Rank Comparison")
     for i, t in enumerate(tags):
@@ -235,7 +239,7 @@ try:
     
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         all_patches = torch.cat([model_data[tag]["patch_tokens"][l] for l in image_labels], dim=0)
         all_flat = all_patches.reshape(-1, model_data[tag]["embed_dim"])
         subset = all_flat[:2000]
@@ -258,7 +262,7 @@ try:
         metrics["Intrinsic Dim (MLE)"] = metrics.get("Intrinsic Dim (MLE)", {})
         metrics["Intrinsic Dim (MLE)"][tag] = f"{id_mle:.1f}"
         
-        color = "#2196F3" if tag == "S" else "#009688"
+        color = TAG_COLORS[tag]
         alpha = 0.6
         
         cos_dist_np = cos_dist if isinstance(cos_dist, np.ndarray) else cos_dist.numpy()
@@ -275,22 +279,22 @@ try:
     axes[0, 1].legend()
     
     # Isotropy bar
-    iso_vals = {t: float(metrics["Isotropy"][t]) for t in ["S", "B"]}
-    axes[1, 0].bar(["S", "B"], [iso_vals["S"], iso_vals["B"]], color=["#2196F3", "#009688"], width=0.5)
+    iso_vals = {t: float(metrics["Isotropy"][t]) for t in TAGS}
+    axes[1, 0].bar(TAGS, [iso_vals[t] for t in TAGS], color=[TAG_COLORS[t] for t in TAGS], width=0.5)
     axes[1, 0].set_title("Isotropy Score")
     axes[1, 0].set_ylim(0, 1)
-    for i, t in enumerate(["S", "B"]):
+    for i, t in enumerate(TAGS):
         axes[1, 0].text(i, iso_vals[t] + 0.02, f"{iso_vals[t]:.3f}", ha="center", fontweight="bold")
     
     # Intrinsic dim bar
-    id_vals_2nn = {t: float(metrics["Intrinsic Dim (2-NN)"][t]) for t in ["S", "B"]}
-    id_vals_mle = {t: float(metrics["Intrinsic Dim (MLE)"][t]) for t in ["S", "B"]}
-    x = np.arange(2)
+    id_vals_2nn = {t: float(metrics["Intrinsic Dim (2-NN)"][t]) for t in TAGS}
+    id_vals_mle = {t: float(metrics["Intrinsic Dim (MLE)"][t]) for t in TAGS}
+    x = np.arange(len(TAGS))
     bw = 0.3
-    axes[1, 1].bar(x - bw/2, [id_vals_2nn["S"], id_vals_2nn["B"]], bw, label="2-NN", color=["#2196F3", "#009688"])
-    axes[1, 1].bar(x + bw/2, [id_vals_mle["S"], id_vals_mle["B"]], bw, label="MLE", color=["#64B5F6", "#4DB6AC"])
+    axes[1, 1].bar(x - bw/2, [id_vals_2nn[t] for t in TAGS], bw, label="2-NN", color=[TAG_COLORS[t] for t in TAGS])
+    axes[1, 1].bar(x + bw/2, [id_vals_mle[t] for t in TAGS], bw, label="MLE", color=[TAG_COLORS_LIGHT[t] for t in TAGS])
     axes[1, 1].set_xticks(x)
-    axes[1, 1].set_xticklabels(["S", "B"])
+    axes[1, 1].set_xticklabels(TAGS)
     axes[1, 1].set_title("Intrinsic Dimensionality")
     axes[1, 1].legend()
     
@@ -318,7 +322,7 @@ try:
     
     select_labels = image_labels[:4]
     
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         fig, axes = plt.subplots(2, len(select_labels), figsize=(4*len(select_labels), 8))
         for i, label in enumerate(select_labels):
             attn_maps = model_data[tag]["attention_maps"][label]
@@ -354,7 +358,7 @@ try:
     
     # Attention distance and entropy per layer
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         attn_maps = model_data[tag]["attention_maps"][first_label]
         layer_keys = sorted(attn_maps.keys())
         distances = []
@@ -366,7 +370,7 @@ try:
             distances.append(dist.mean().item())
             entropies.append(ent.mean().item())
         
-        color = "#2196F3" if tag == "S" else "#009688"
+        color = TAG_COLORS[tag]
         axes[0].plot(distances, 'o-', label=f"DINOv2-{tag}", color=color)
         axes[1].plot(entropies, 'o-', label=f"DINOv2-{tag}", color=color)
     
@@ -401,7 +405,7 @@ p("\n[5/11] Layer-wise CKA...")
 try:
     from repviz.analyses.layerwise import layerwise_cka_matrix, feature_norm_progression, effective_rank_progression
     
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         intermediate = model_data[tag]["intermediate"][first_label]
         # Use every 2nd layer for speed
         keys = sorted(intermediate.keys())
@@ -423,12 +427,12 @@ try:
     
     # Norm and rank progression
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         intermediate = model_data[tag]["intermediate"][first_label]
         norms = feature_norm_progression(intermediate)
         ranks = effective_rank_progression(intermediate)
         
-        color = "#2196F3" if tag == "S" else "#009688"
+        color = TAG_COLORS[tag]
         layer_names = sorted(norms.keys())
         axes[0].plot([norms[n] for n in layer_names], 'o-', label=f"DINOv2-{tag}", color=color)
         layer_names_r = sorted(ranks.keys())
@@ -467,7 +471,7 @@ try:
     
     select_labels = image_labels[:4]
     
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         fig, axes = plt.subplots(3, len(select_labels), figsize=(4*len(select_labels), 12))
         for i, label in enumerate(select_labels):
             patches = model_data[tag]["patch_tokens"][label][0]  # (N, D)
@@ -519,10 +523,10 @@ try:
     
     # Augmentation invariance
     fig, ax = plt.subplots(figsize=(10, 5))
-    bw = 0.35
+    bw = 0.8 / len(TAGS)
     aug_results = {}
     
-    for idx, tag in enumerate(["S", "B"]):
+    for idx, tag in enumerate(TAGS):
         backbone = model_data[tag]["backbone"]
         batch = torch.stack([images_tensor[l] for l in image_labels[:4]])
         scores = augmentation_invariance_suite(backbone, batch)
@@ -531,10 +535,11 @@ try:
         names = list(scores.keys())
         vals = [scores[n] for n in names]
         x = np.arange(len(names))
-        color = "#2196F3" if tag == "S" else "#009688"
-        ax.bar(x + idx * bw, vals, bw, label=f"DINOv2-{tag}", color=color)
+        color = TAG_COLORS[tag]
+        offset = (idx - (len(TAGS)-1)/2) * bw
+        ax.bar(x + offset, vals, bw, label=f"DINOv2-{tag}", color=color)
     
-    ax.set_xticks(x + bw/2)
+    ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=30, ha="right")
     ax.set_ylim(0, 1)
     ax.set_ylabel("Cosine Similarity")
@@ -550,13 +555,13 @@ try:
     
     # Resolution sensitivity
     fig, ax = plt.subplots(figsize=(8, 5))
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         backbone = model_data[tag]["backbone"]
         pil_list = [images_pil[l] for l in image_labels[:3]]
         resolutions = [224, 336, 448, 518]
         scores = resolution_sensitivity(backbone, pil_list, resolutions=resolutions)
         
-        color = "#2196F3" if tag == "S" else "#009688"
+        color = TAG_COLORS[tag]
         res_keys = sorted(scores.keys())
         ax.plot(res_keys, [scores[r] for r in res_keys], 'o-', label=f"DINOv2-{tag}", color=color)
     
@@ -584,7 +589,7 @@ p("\n[8/11] Weight Analysis...")
 try:
     from repviz.analyses.weights import weight_distributions, weight_effective_rank, weight_spectral_analysis
     
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         backbone = model_data[tag]["backbone"]
         
         dists = weight_distributions(backbone.model)
@@ -595,7 +600,7 @@ try:
         layer_names = sorted(dists.keys())
         sample_layers = [layer_names[0], layer_names[len(layer_names)//2], layer_names[-1]]
         for i, ln in enumerate(sample_layers):
-            axes[i].hist(dists[ln], bins=100, density=True, color="#2196F3" if tag == "S" else "#009688", alpha=0.8)
+            axes[i].hist(dists[ln], bins=100, density=True, color=TAG_COLORS[tag], alpha=0.8)
             short_name = ln.split(".")[-2] + "." + ln.split(".")[-1] if "." in ln else ln
             axes[i].set_title(short_name, fontsize=9)
             axes[i].set_xlabel("Weight Value")
@@ -610,8 +615,7 @@ try:
         # Effective rank per layer
         fig, ax = plt.subplots(figsize=(12, 4))
         rnames = sorted(ranks.keys())[:30]
-        color = "#2196F3" if tag == "S" else "#009688"
-        ax.bar(range(len(rnames)), [ranks[n] for n in rnames], color=color)
+        ax.bar(range(len(rnames)), [ranks[n] for n in rnames], color=TAG_COLORS[tag])
         ax.set_xticks(range(len(rnames)))
         ax.set_xticklabels([n.split(".")[-2]+"."+n.split(".")[-1] if "." in n else n for n in rnames], rotation=90, fontsize=6)
         ax.set_title(f"DINOv2-{tag}: Weight Matrix Effective Rank")
@@ -637,45 +641,55 @@ try:
     from repviz.analyses.layerwise import linear_cka
     
     # CKA between S and B layer representations
-    inter_S = model_data["S"]["intermediate"][first_label]
-    inter_B = model_data["B"]["intermediate"][first_label]
-    keys_S = sorted(inter_S.keys())
-    keys_B = sorted(inter_B.keys())
+    # Generate cross-model CKA for all pairs
+    import itertools
+    tag_pairs = list(itertools.combinations(TAGS, 2))
     
-    # Subsample for speed
-    step_S = max(1, len(keys_S) // 8)
-    step_B = max(1, len(keys_B) // 8)
-    sub_S = keys_S[::step_S]
-    sub_B = keys_B[::step_B]
+    n_pairs = len(tag_pairs)
+    fig, axes = plt.subplots(1, n_pairs, figsize=(7*n_pairs, 6))
+    if n_pairs == 1:
+        axes = [axes]
     
-    cka_matrix = np.zeros((len(sub_S), len(sub_B)))
-    for i, ks in enumerate(sub_S):
-        for j, kb in enumerate(sub_B):
-            fs = inter_S[ks][:, 1:].reshape(-1, model_data["S"]["embed_dim"])[:300]
-            fb = inter_B[kb][:, 1:].reshape(-1, model_data["B"]["embed_dim"])[:300]
-            cka_matrix[i, j] = linear_cka(fs, fb)
+    for pi, (t1, t2) in enumerate(tag_pairs):
+        inter_1 = model_data[t1]["intermediate"][first_label]
+        inter_2 = model_data[t2]["intermediate"][first_label]
+        keys_1 = sorted(inter_1.keys())
+        keys_2 = sorted(inter_2.keys())
+        step_1 = max(1, len(keys_1) // 8)
+        step_2 = max(1, len(keys_2) // 8)
+        sub_1 = keys_1[::step_1]
+        sub_2 = keys_2[::step_2]
+        
+        cka_mat = np.zeros((len(sub_1), len(sub_2)))
+        for i, k1 in enumerate(sub_1):
+            for j, k2 in enumerate(sub_2):
+                f1 = inter_1[k1][:, 1:].reshape(-1, model_data[t1]["embed_dim"])[:300]
+                f2 = inter_2[k2][:, 1:].reshape(-1, model_data[t2]["embed_dim"])[:300]
+                cka_mat[i, j] = linear_cka(f1, f2)
+        
+        sns.heatmap(cka_mat, xticklabels=sub_2, yticklabels=sub_1, cmap="magma", vmin=0, vmax=1, square=True, ax=axes[pi])
+        axes[pi].set_xlabel(f"DINOv2-{t2} layers")
+        axes[pi].set_ylabel(f"DINOv2-{t1} layers")
+        axes[pi].set_title(f"{t1} vs {t2}", fontsize=12, fontweight="bold")
+        axes[pi].tick_params(labelsize=6)
     
-    fig, ax = plt.subplots(figsize=(8, 7))
-    sns.heatmap(cka_matrix, xticklabels=sub_B, yticklabels=sub_S, cmap="magma", vmin=0, vmax=1, square=True, ax=ax)
-    ax.set_xlabel("DINOv2-B layers")
-    ax.set_ylabel("DINOv2-S layers")
-    ax.set_title("Cross-Model CKA: DINOv2-S vs DINOv2-B", fontsize=13, fontweight="bold")
-    plt.xticks(rotation=45, ha="right", fontsize=7)
-    plt.yticks(rotation=0, fontsize=7)
+    fig.suptitle("Cross-Model CKA Similarity", fontsize=14, fontweight="bold")
     fig.tight_layout()
     add_figure("cross_model_cka", fig,
-        "Cross-Model CKA: DINOv2-S vs DINOv2-B",
-        "This heatmap shows representational similarity between layers of the small and base models. "
+        "Cross-Model CKA Between All Model Pairs",
+        "These heatmaps show representational similarity between layers of different-sized models. "
         "A diagonal pattern indicates that corresponding layers learn similar features despite different "
         "model capacities. Off-diagonal bright regions reveal where one model's representations map to "
         "different depths in the other.")
     
-    # Mutual k-NN on CLS tokens
-    cls_S = torch.cat([model_data["S"]["cls_tokens"][l] for l in image_labels], dim=0)
-    cls_B = torch.cat([model_data["B"]["cls_tokens"][l] for l in image_labels], dim=0)
-    mknn = cross_model_mutual_knn(cls_S, cls_B, k=min(3, len(image_labels)-1))
-    metrics["Mutual k-NN (CLS)"] = {"S↔B": f"{mknn:.3f}"}
-    p(f"  Mutual k-NN (CLS): {mknn:.3f}")
+    # Mutual k-NN on CLS tokens for all pairs
+    metrics["Mutual k-NN (CLS)"] = {}
+    for t1, t2 in tag_pairs:
+        cls_1 = torch.cat([model_data[t1]["cls_tokens"][l] for l in image_labels], dim=0)
+        cls_2 = torch.cat([model_data[t2]["cls_tokens"][l] for l in image_labels], dim=0)
+        mknn = cross_model_mutual_knn(cls_1, cls_2, k=min(3, len(image_labels)-1))
+        metrics["Mutual k-NN (CLS)"][f"{t1}↔{t2}"] = f"{mknn:.3f}"
+        p(f"  Mutual k-NN ({t1}↔{t2}): {mknn:.3f}")
     
     p("  Done.")
 except Exception as e:
@@ -694,7 +708,7 @@ try:
     dead_vals = {}
     redundancy_vals = {}
     
-    for tag in ["S", "B"]:
+    for tag in TAGS:
         all_patches = torch.cat([model_data[tag]["patch_tokens"][l] for l in image_labels], dim=0)
         flat = all_patches.reshape(-1, model_data[tag]["embed_dim"])
         
@@ -713,19 +727,19 @@ try:
             metrics["Highly Correlated Channels"][tag] = f"{redundancy['highly_correlated_fraction']:.3f}"
     
     # Dead neurons bar
-    colors = ["#2196F3", "#009688"]
-    axes[0].bar(["S", "B"], [dead_vals["S"], dead_vals["B"]], color=colors, width=0.5)
+    axes[0].bar(TAGS, [dead_vals[t] for t in TAGS], color=[TAG_COLORS[t] for t in TAGS], width=0.5)
     axes[0].set_title("Dead Neuron Fraction")
     axes[0].set_ylabel("Fraction")
-    for i, t in enumerate(["S", "B"]):
+    for i, t in enumerate(TAGS):
         axes[0].text(i, dead_vals[t] + 0.001, f"{dead_vals[t]:.4f}", ha="center", fontweight="bold")
     
     # Redundancy bars
     r_metrics = list(redundancy_vals["S"].keys())
     x = np.arange(len(r_metrics))
-    bw = 0.35
-    axes[1].bar(x - bw/2, [redundancy_vals["S"][m] for m in r_metrics], bw, label="DINOv2-S", color="#2196F3")
-    axes[1].bar(x + bw/2, [redundancy_vals["B"][m] for m in r_metrics], bw, label="DINOv2-B", color="#009688")
+    bw = 0.8 / len(TAGS)
+    for idx, t in enumerate(TAGS):
+        offset = (idx - (len(TAGS)-1)/2) * bw
+        axes[1].bar(x + offset, [redundancy_vals[t][m] for m in r_metrics], bw, label=f"DINOv2-{t}", color=TAG_COLORS[t])
     axes[1].set_xticks(x)
     axes[1].set_xticklabels([m.replace("_", "\n") for m in r_metrics], fontsize=8)
     axes[1].set_title("Channel Redundancy Metrics")
@@ -750,11 +764,13 @@ except Exception as e:
 p("\n[11/11] Building HTML report...")
 
 # Collect parameters
-params_S = sum(p.numel() for p in model_data["S"]["backbone"].model.parameters())
-params_B = sum(p.numel() for p in model_data["B"]["backbone"].model.parameters())
-metrics["Parameters"] = {"S": f"{params_S/1e6:.1f}M", "B": f"{params_B/1e6:.1f}M"}
-metrics["Embedding Dim"] = {"S": str(model_data["S"]["embed_dim"]), "B": str(model_data["B"]["embed_dim"])}
-metrics["Num Layers"] = {"S": str(model_data["S"]["num_layers"]), "B": str(model_data["B"]["num_layers"])}
+model_params = {}
+for tag in TAGS:
+    p_count = sum(p.numel() for p in model_data[tag]["backbone"].model.parameters())
+    model_params[tag] = p_count
+metrics["Parameters"] = {t: f"{model_params[t]/1e6:.1f}M" for t in TAGS}
+metrics["Embedding Dim"] = {t: str(model_data[t]["embed_dim"]) for t in TAGS}
+metrics["Num Layers"] = {t: str(model_data[t]["num_layers"]) for t in TAGS}
 
 sections = [
     ("pca", "PCA Feature Maps", [f for f in figures if f.startswith("pca_")]),
@@ -868,8 +884,7 @@ h1 {{ font-size: 28px; margin-bottom: 8px; }}
 {nav_html}
 <div class="main">
 <h1>🔬 RepViz: DINOv2 Representation Analysis</h1>
-<p class="subtitle">Comprehensive analysis of DINOv2-S (ViT-S/14, {params_S/1e6:.0f}M params) and
-DINOv2-B (ViT-B/14, {params_B/1e6:.0f}M params) across {len(image_labels)} diverse images.</p>
+<p class="subtitle">Comprehensive analysis of {' and '.join(f'DINOv2-{t} ({model_params[t]/1e6:.0f}M params)' for t in TAGS)} across {len(image_labels)} diverse images.</p>
 {content_html}
 </div>
 <script>
